@@ -1,0 +1,70 @@
+name: Build with Ubuntu 22.04.5 + Docker 29.3.0 Environment
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_variant:
+        description: '选择要构建的镜像版本'
+        required: true
+        default: 'ubuntu2204'
+        type: choice
+        options:
+          - ubuntu2204
+          - ubuntu2404
+          - all
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: casaos-full
+
+jobs:
+  # 使用自定义 Docker 镜像作为运行环境
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/yuu76hy/casaos-docker-images:ubuntu2204
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      options: --privileged --cgroupns=host -v /var/lib/docker:/var/lib/docker
+
+    steps:
+      - name: Verify Environment
+        run: |
+          echo "=== 系统信息 ==="
+          cat /etc/os-release
+          echo ""
+          echo "=== Docker 版本 ==="
+          docker --version
+          echo ""
+          echo "=== CasaOS 状态 ==="
+          systemctl status casaos || true
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push images
+        run: |
+          if [ "${{ github.event.inputs.image_variant }}" == "ubuntu2204" ] || [ "${{ github.event.inputs.image_variant }}" == "all" ] || [ -z "${{ github.event.inputs.image_variant }}" ]; then
+            echo "🏗️ 构建 Ubuntu 22.04 镜像..."
+            docker build -f Dockerfile-ubuntu2204 -t ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:ubuntu2204 .
+            docker push ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:ubuntu2204
+          fi
+
+          if [ "${{ github.event.inputs.image_variant }}" == "ubuntu2404" ] || [ "${{ github.event.inputs.image_variant }}" == "all" ]; then
+            echo "🏗️ 构建 Ubuntu 24.04 镜像..."
+            docker build -f Dockerfile -t ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:ubuntu2404 .
+            docker push ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:ubuntu2404
+          fi
+
+      - name: Test built images
+        run: |
+          echo "🧪 测试构建的镜像..."
+          docker images | grep casaos
