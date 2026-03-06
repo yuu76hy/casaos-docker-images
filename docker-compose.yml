@@ -1,0 +1,75 @@
+version: '3.8'
+
+services:
+  casaos:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: casaos-full
+    hostname: casaos-docker
+    privileged: true
+    restart: unless-stopped
+    
+    ports:
+      - "80:80"      # CasaOS HTTP
+      - "443:443"    # CasaOS HTTPS
+      - "8080:8080"  # CasaOS 备用端口
+      - "2222:22"    # SSH (映射到主机2222端口避免冲突)
+      - "2375:2375"  # Docker API
+    
+    volumes:
+      # Docker 数据持久化
+      - docker-data:/var/lib/docker
+      # CasaOS 配置
+      - casaos-etc:/etc/casaos
+      - casaos-lib:/var/lib/casaos
+      # 用户数据
+      - casaos-data:/DATA
+      # 根用户配置
+      - root-config:/root/.config
+      # cgroup 支持 (Docker in Docker)
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    
+    environment:
+      - TZ=Asia/Shanghai
+      - DEBIAN_FRONTEND=noninteractive
+    
+    # 启用所有能力 (Docker in Docker 需要)
+    cap_add:
+      - ALL
+    
+    # 安全选项
+    security_opt:
+      - seccomp:unconfined
+      - apparmor:unconfined
+    
+    # cgroup 命名空间
+    cgroup: host
+    
+    # 网络模式
+    networks:
+      - casaos-network
+    
+    # 健康检查
+    healthcheck:
+      test: ["CMD", "docker", "info"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  docker-data:
+    driver: local
+  casaos-etc:
+    driver: local
+  casaos-lib:
+    driver: local
+  casaos-data:
+    driver: local
+  root-config:
+    driver: local
+
+networks:
+  casaos-network:
+    driver: bridge

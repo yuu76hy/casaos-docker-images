@@ -1,0 +1,88 @@
+MiniMax  sk-api-Yo12fy8tHLw04r87H7mtKFyyuZ9E77jOWVlonuPjVRAuUGiZtbJ1LxIDqt6XyDa_tWZVJp5mL3aZbG6esm0GaIaKgz5Lpsh6cbaVLR094h988h_WiygiqSQ
+
+
+
+
+ Moonshot (Kimi)                sk-9oRQfS58jsQ1yOnWcwsUzO1NlqCciK56sCSu1xgWg5ciCY3x
+
+docker exec -it openclaw /bin/bash
+
+🦞 OpenClaw 中文版 2026.2.13 (9475791) — End-to-end encrypted, drama-to-drama excluded.
+
+Usage: openclaw [options] [command]
+
+Options:
+  --dev             开发配置：在 ~/.openclaw-dev 下隔离状态，默认网关端口 19001，并移动派生端口（浏览器/画布）
+  -h, --help        display help for command
+  --no-color        禁用 ANSI 颜色
+  --profile <name>  使用命名配置文件（在 ~/.openclaw-<name> 下隔离状态和配置）
+  -V, --version     output the version number
+
+Commands:
+  acp               Agent 控制协议 (ACP) 工具
+  agent             Run an agent turn via the Gateway (use --local for embedded)
+  agents            Manage isolated agents (workspaces + auth + routing)
+  approvals         执行审批
+  browser           Manage OpenClaw's dedicated browser (Chrome/Chromium)
+  channels          渠道管理
+  completion        生成 Shell 补全脚本
+  config            Config helpers (get/set/unset). Run without subcommand for the wizard.
+  configure         Interactive prompt to set up credentials, devices, and agent defaults
+  cron              定时任务调度
+  daemon            网关服务（旧版别名）
+  dashboard         Open the Control UI with your current token
+  devices           设备配对与令牌管理
+  directory         目录命令
+  dns               DNS 工具
+  docs              文档工具
+  doctor            Health checks + quick fixes for the gateway and channels
+  gateway           网关控制
+  health            Fetch health from the running gateway
+  help              display help for command
+  hooks             Hooks 工具
+  logs              网关日志
+  memory            Memory search tools
+  message           Send messages and channel actions
+  models            模型配置
+  node              节点控制
+  nodes             节点命令
+  onboard           Interactive wizard to set up the gateway, workspace, and skills
+  pairing           配对工具
+  plugins           插件管理
+  reset             Reset local config/state (keeps the CLI installed)
+  sandbox           沙箱工具
+  security          安全工具
+  sessions          List stored conversation sessions
+  setup             Initialize ~/.openclaw/openclaw.json and the agent workspace
+  skills            技能管理
+  status            Show channel health and recent session recipients
+  system            系统事件、心跳与在线状态
+  tui               终端界面 (TUI)
+  uninstall         Uninstall the gateway service + local data (CLI remains)
+  update            CLI 更新工具
+  webhooks          Webhook 工具
+
+示例：
+  openclaw channels login --verbose
+    关联个人 WhatsApp Web 并显示二维码和连接日志。
+  openclaw message send --target +15555550123 --message "Hi" --json
+    通过你的 Web 会话发送并打印 JSON 结果。
+  openclaw gateway --port 18789
+    在本地运行 WebSocket 网关。
+  openclaw --dev gateway
+    在 ws://127.0.0.1:19001 上运行开发网关（隔离状态/配置）。
+  openclaw gateway --force
+    终止占用默认网关端口的进程，然后启动网关。
+  openclaw gateway ...
+    通过 WebSocket 控制网关。
+  openclaw agent --to +15555550123 --message "Run summary" --deliver
+    通过网关直接与 AI 助手对话；可选发送 WhatsApp 回复。
+  openclaw message send --channel telegram --target @mychat --message "Hi"
+    通过你的 Telegram 机器人发送。
+
+文档： docs.openclaw.ai/cli
+汉化版： https://openclaw.qt.cool/
+
+
+http://127.0.0.1:18789/?token=9a164c21fffb3bcf212627d1d3a726054fed31  │
+│  0bdf2ae08b
