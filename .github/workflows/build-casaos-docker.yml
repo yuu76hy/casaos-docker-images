@@ -2,10 +2,21 @@ name: Build CasaOS + Docker Image
 
 on:
   workflow_dispatch:
+    inputs:
+      image_variant:
+        description: '选择要构建的镜像版本'
+        required: true
+        default: 'ubuntu2404'
+        type: choice
+        options:
+          - ubuntu2404
+          - ubuntu2204
+          - all
   push:
     branches: [ main, master ]
     paths:
       - 'Dockerfile'
+      - 'Dockerfile-ubuntu2204'
       - 'entrypoint.sh'
       - 'supervisord.conf'
       - '.github/workflows/build-casaos-docker.yml'
@@ -18,8 +29,10 @@ env:
   IMAGE_NAME: casaos-full
 
 jobs:
-  build:
+  # Ubuntu 24.04 版本
+  build-ubuntu2404:
     runs-on: ubuntu-latest
+    if: github.event.inputs.image_variant == 'ubuntu2404' || github.event.inputs.image_variant == 'all' || github.event.inputs.image_variant == ''
     permissions:
       contents: read
       packages: write
@@ -49,82 +62,175 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest
+            type=raw,value=ubuntu2404
             type=schedule,pattern={{date 'YYYYMMDD'}}
 
-      - name: Build and push Docker image
+      - name: Build and push Ubuntu 24.04 image
         uses: docker/build-push-action@v5
         with:
           context: .
+          file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          build-args: |
-            BUILD_DATE=${{ github.event.head_commit.timestamp }}
-            VCS_REF=${{ github.sha }}
 
-      - name: Generate SBOM
-        uses: anchore/sbom-action@v0
-        with:
-          image: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest
-          format: spdx-json
-          output-file: sbom.spdx.json
-
-      - name: Scan image for vulnerabilities
+      - name: Scan Ubuntu 24.04 image
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest
+          image-ref: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:ubuntu2404
           format: 'sarif'
-          output: 'trivy-results.sarif'
+          output: 'trivy-results-ubuntu2404.sarif'
 
       - name: Upload scan results
         uses: github/codeql-action/upload-sarif@v2
         if: always()
         with:
-          sarif_file: 'trivy-results.sarif'
+          sarif_file: 'trivy-results-ubuntu2404.sarif'
 
-  test:
-    needs: build
+  # Ubuntu 22.04 + Docker 29.3.0 版本
+  build-ubuntu2204:
     runs-on: ubuntu-latest
+    if: github.event.inputs.image_variant == 'ubuntu2204' || github.event.inputs.image_variant == 'all' || github.event.inputs.image_variant == ''
+    permissions:
+      contents: read
+      packages: write
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Pull and test image
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: linux/amd64,linux/arm64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=ubuntu2204
+            type=raw,value=ubuntu2204-docker29
+            type=schedule,pattern={{date 'YYYYMMDD'}}-ubuntu2204
+
+      - name: Build and push Ubuntu 22.04 image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile-ubuntu2204
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Scan Ubuntu 22.04 image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:ubuntu2204
+          format: 'sarif'
+          output: 'trivy-results-ubuntu2204.sarif'
+
+      - name: Upload scan results
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: 'trivy-results-ubuntu2204.sarif'
+
+  # 测试 Ubuntu 24.04
+  test-ubuntu2404:
+    needs: build-ubuntu2404
+    runs-on: ubuntu-latest
+    if: github.event.inputs.image_variant == 'ubuntu2404' || github.event.inputs.image_variant == 'all' || github.event.inputs.image_variant == ''
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Pull and test Ubuntu 24.04 image
         run: |
-          echo "📥 拉取镜像..."
-          docker pull ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest
+          echo "📥 拉取 Ubuntu 24.04 镜像..."
+          docker pull ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:ubuntu2404
 
           echo "🏃 运行测试容器..."
           docker run -d \
-            --name casaos-test \
+            --name casaos-test-2404 \
             --privileged \
             -p 8080:80 \
             -p 8443:443 \
             -p 2222:22 \
             -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
             --cgroupns=host \
-            ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:ubuntu2404
 
           echo "⏳ 等待服务启动..."
           sleep 30
 
           echo "🔍 检查容器状态..."
           docker ps
-          docker logs casaos-test
+          docker logs casaos-test-2404
 
-          echo "✅ 测试完成"
+          echo "✅ Ubuntu 24.04 测试完成"
 
       - name: Cleanup
         if: always()
         run: |
-          docker stop casaos-test || true
-          docker rm casaos-test || true
+          docker stop casaos-test-2404 || true
+          docker rm casaos-test-2404 || true
+
+  # 测试 Ubuntu 22.04
+  test-ubuntu2204:
+    needs: build-ubuntu2204
+    runs-on: ubuntu-latest
+    if: github.event.inputs.image_variant == 'ubuntu2204' || github.event.inputs.image_variant == 'all' || github.event.inputs.image_variant == ''
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Pull and test Ubuntu 22.04 image
+        run: |
+          echo "📥 拉取 Ubuntu 22.04 镜像..."
+          docker pull ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:ubuntu2204
+
+          echo "🏃 运行测试容器..."
+          docker run -d \
+            --name casaos-test-2204 \
+            --privileged \
+            -p 8090:80 \
+            -p 8444:443 \
+            -p 2223:22 \
+            -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
+            --cgroupns=host \
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:ubuntu2204
+
+          echo "⏳ 等待服务启动..."
+          sleep 30
+
+          echo "🔍 检查容器状态..."
+          docker ps
+          docker logs casaos-test-2204
+
+          echo "✅ Ubuntu 22.04 测试完成"
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker stop casaos-test-2204 || true
+          docker rm casaos-test-2204 || true
