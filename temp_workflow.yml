@@ -1,0 +1,191 @@
+name: CasaOS纯净部署（Tailscale内网版 /aaa目录 拉取即删 无限检测删除）
+
+on:
+  workflow_dispatch:
+  repository_dispatch:
+    types: [renew_casaos_snapshot]
+
+jobs:
+  casaos-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      LOCAL_BACKUP_DIR: "/tmp/casaos-backup"
+      PERSONAL_DATA_DIRS: "/var/lib/docker /etc/casaos /var/lib/casaos /DATA /root/.config"
+      ZSTD_COMPRESS_LEVEL: 1
+      TAILSCALE_AUTH_KEY: ${{ secrets.TAILSCALE_AUTH_KEY }}
+      USER_PAT: ${{ secrets.USER_PAT }}
+      REPO: ${{ secrets.REPO }}
+
+    steps:
+      # 1 - 系统初始化（精简版）
+      - name: 1-系统初始化（精简版）
+        run: |
+          set -e
+          echo "===== [日志] 1-系统初始化 开始 ====="
+          sudo apt-get update -y -qq
+          sudo apt-get install -y -qq curl wget jq tar zstd rclone lsof ca-certificates gnupg
+          sudo apt-get autoremove -y -qq && sudo apt-get clean -y -qq
+          echo "✅ [日志] 1-系统初始化完成"
+          echo "===== [日志] 1-步骤结束 =====\n"
+
+      # 2 - 官方一键装Docker（含compose）
+      - name: 2-官方一键装Docker（含compose）
+        run: |
+          set -e
+          echo "===== [日志] 2-安装Docker 开始 ====="
+          sudo apt-get remove -y docker* containerd* runc* 2>/dev/null || true
+          curl -fsSL https://get.docker.com | sudo bash -s docker --mirror Aliyun
+          sudo systemctl enable --now docker containerd && sleep 2
+          docker --version && docker compose version
+          sudo usermod -aG docker runner
+          echo "✅ [日志] 2-Docker安装完成"
+          echo "===== [日志] 2-步骤结束 =====\n"
+
+      # 3 - 创建免密管理员用户
+      - name: 3-创建免密管理员用户
+        run: |
+          set -e
+          echo "===== [日志] 3-创建管理员用户 开始 ====="
+          USER_NAME="roots"
+          id -u "$USER_NAME" &>/dev/null || sudo useradd -m -s /bin/bash "$USER_NAME"
+          RANDOM_PASS=$(openssl rand -base64 12)
+          echo "$USER_NAME:$RANDOM_PASS" | sudo chpasswd
+          echo "$USER_NAME ALL=(ALL) NOPASSWD: ALL" | sudo tee /etc/sudoers.d/"$USER_NAME" >/dev/null
+          sudo chmod 0440 /etc/sudoers.d/"$USER_NAME"
+          sudo usermod -aG docker "$USER_NAME"
+          echo "🔑 [日志] roots密码：$RANDOM_PASS"
+          echo "✅ [日志] 3-用户创建完成"
+          echo "===== [日志] 3-步骤结束 =====\n"
+
+      # 4 - 纯净安装CasaOS
+      - name: 4-纯净安装CasaOS（仅程序无数据）
+        run: |
+          set -e
+          echo "===== [日志] 4-安装CasaOS 开始 ====="
+          sudo systemctl restart docker containerd && sleep 2
+          sudo systemctl stop casaos 2>/dev/null || true
+          sudo systemctl disable casaos 2>/dev/null || true
+          sudo rm -f /etc/systemd/system/casaos.service /usr/lib/systemd/system/casaos.service 2>/dev/null || true
+          sudo systemctl daemon-reload
+          curl -fsSL https://get.casaos.io | sudo bash
+          sudo systemctl stop casaos 2>/dev/null || true
+          echo "✅ [日志] 4-CasaOS安装完成"
+          echo "===== [日志] 4-步骤结束 =====\n"
+
+      # 5 - 权限校正+极速启动所有服务
+      - name: 5-权限校正+极速启动所有服务
+        run: |
+          set -e
+          echo "===== [日志] 5-启动服务 开始 ====="
+          sudo fuser -k 80/tcp 443/tcp 2>/dev/null || true
+          sudo mkdir -p /run/docker 2>/dev/null || true
+          sudo mkdir -p /etc/casaos /var/lib/casaos /DATA 2>/dev/null || true
+          sudo chown -R root:root /etc/casaos /var/lib/casaos /var/lib/docker
+          sudo chmod -R 755 /etc/casaos
+          sudo chmod -R 700 /var/lib/casaos /var/lib/docker
+          sudo systemctl daemon-reload
+          sudo systemctl enable --now docker containerd && sleep 3
+          sudo systemctl enable --now casaos && sleep 4
+          echo "✅ [日志] 5-服务启动完成"
+          echo "📌 [日志] 访问地址：服务器IP（80端口）"
+          echo "===== [日志] 5-步骤结束 =====\n"
+
+      # 6 - Tailscale远程组网
+      - name: 6-Tailscale远程组网（可选）
+        run: |
+          set -e
+          echo "===== [日志] 6-Tailscale组网 开始 ====="
+          if [ -z "$TAILSCALE_AUTH_KEY" ]; then
+            echo "⚠️ [日志] Tailscale密钥缺失，跳过"
+            exit 0
+          fi
+          curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/noble.noarmor.gpg | sudo tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
+          echo "deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/ubuntu noble main" | sudo tee /etc/apt/sources.list.d/tailscale.list >/dev/null
+          sudo apt-get update -y -qq && sudo apt-get install -y tailscale -qq
+          sudo systemctl enable --now tailscaled && sleep 2
+          sudo tailscale up --authkey="$TAILSCALE_AUTH_KEY" --hostname="CasaOS-$(hostname | cut -c1-6)" --accept-routes
+          TAILSCALE_IP=$(sudo tailscale ip -4 2>/dev/null)
+          echo "✅ [日志] Tailscale组网成功，内网IP：${TAILSCALE_IP:-未获取}"
+          echo "===== [日志] 6-步骤结束 =====\n"
+
+      # 7 - 等待并检测删除信号
+      - name: 7-等待并检测删除信号
+        run: |
+          set -e
+          echo "===== [日志] 7-等待删除信号 开始 ====="
+          echo "⏳ [日志] 等待用户拉取备份并删除..."
+          echo "📌 [日志] 备份将保存在 /aaa 目录"
+          echo "✅ [日志] 7-进入等待状态"
+          echo "===== [日志] 7-步骤结束 =====\n"
+
+      # 8 - 生成本地全量备份
+      - name: 8-生成本地全量备份
+        if: ${{ always() }}
+        run: |
+          set +e
+          echo "===== [日志] 8-生成本地全量备份 开始 ====="
+          sudo mkdir -p "$LOCAL_BACKUP_DIR" || true
+          IFS=' ' read -r -a DIR_ARRAY <<< "$PERSONAL_DATA_DIRS"
+          for dir in "${DIR_ARRAY[@]}"; do [ ! -d "$dir" ] && sudo mkdir -p "$dir" || true; done
+          SNAP_NAME="casaos-full-$(date +%Y%m%d-%H%M%S).tar.zst"
+          LOCAL_FILE="$LOCAL_BACKUP_DIR/$SNAP_NAME"
+          echo "[日志] 备份文件：$SNAP_NAME"
+          sudo tar -I"zstd -$ZSTD_COMPRESS_LEVEL -T0" --fast-read --no-acls --ignore-failed-read -cf "$LOCAL_FILE" "${DIR_ARRAY[@]}" 2>/dev/null
+
+          if [ -f "$LOCAL_FILE" ] && [ $(stat -c%s "$LOCAL_FILE" 2>/dev/null || echo 0) -gt 1024 ]; then
+            echo "[日志] ✅ 备份有效"
+            echo "BACKUP_FILE=$LOCAL_FILE" >> $GITHUB_ENV || true
+            echo "SNAP_NAME=$SNAP_NAME" >> $GITHUB_ENV || true
+          else
+            echo "[日志] ❌ 备份文件无效"
+            exit 0
+          fi
+          echo "✅ [日志] 8-备份完成"
+          echo "===== [日志] 8-步骤结束 =====\n"
+
+      # 9 - 触发下一轮续跑
+      - name: 9-触发下一轮续跑
+        if: ${{ always() }}
+        run: |
+          set +e
+          echo "===== [日志] 9-触发续跑 开始 ====="
+          [ -z "$USER_PAT" ] || [ -z "$REPO" ] && { echo "⚠️ [日志] 未配置 PAT/REPO，跳过"; exit 0; }
+          curl -s -X POST -H "Authorization: token $USER_PAT" -H "Content-Type: application/json" \
+            https://api.github.com/repos/$REPO/dispatches -d '{"event_type":"renew_casaos_snapshot"}' >/dev/null 2>&1
+          echo "✅ [日志] 9-续跑触发完成"
+          echo "===== [日志] 9-步骤结束 =====\n"
+
+      # 10 - 移入 /aaa 并无限轮询删除
+      - name: 10-移入/aaa并无限轮询检测删除
+        if: ${{ always() }}
+        run: |
+          set +e
+          echo "===== [日志] 10-备份移入/aaa + 无限轮询删除 开始 ====="
+          [ -z "$BACKUP_FILE" ] || [ -z "$SNAP_NAME" ] && { echo "ℹ️ [日志] 无备份文件，跳过"; exit 0; }
+          LOCAL_AAA="/aaa"
+          sudo mkdir -p "$LOCAL_AAA" || true
+          TARGET_FILE="$LOCAL_AAA/$SNAP_NAME"
+          sudo mv -f "$BACKUP_FILE" "$TARGET_FILE" 2>/dev/null || true
+          echo -e "\n[日志] ⌛ 无限轮询：文件被删除即退出，进入下一轮"
+
+          while [ -f "$TARGET_FILE" ]; do
+            sleep 60 || true
+          done
+
+          echo "[日志] 🎉 文件已被拉取删除，退出轮询"
+          echo "✅ [日志] 10-轮询结束"
+          echo "===== [日志] 10-步骤结束 =====\n"
+
+      # 11 - 最终清理 + 关闭 Tailscale
+      - name: 11-最终清理+关闭Tailscale主网络
+        if: ${{ always() }}
+        run: |
+          set +e
+          echo "===== [日志] 11-最终清理 + 关闭Tailscale 开始 ====="
+          sudo systemctl stop tailscaled 2>/dev/null || sudo pkill -9 "tailscaled" 2>/dev/null
+          sudo rm -rf "$LOCAL_BACKUP_DIR" /tmp/* /etc/sudoers.d/roots 2>/dev/null || true
+          sudo apt autoremove -y -qq && sudo apt clean -y -qq 2>/dev/null || true
+          echo "✅ [日志] 11-清理完成，Tailscale 已关闭"
+          echo "🎉 [日志] 全流程正常结束"
+          echo "===== [日志] 11-步骤结束 =====\n"
