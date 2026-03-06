@@ -25,6 +25,14 @@ jobs:
       packages: write
       
     steps:
+      - name: 1-拉取已存在的镜像作为缓存
+        id: pull-existing
+        continue-on-error: true
+        run: |
+          echo "📥 尝试拉取已存在的镜像作为缓存..."
+          docker pull ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest 2>/dev/null || echo "⚠️ 未找到现有镜像，将全新构建"
+          echo "✅ 缓存检查完成"
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -64,7 +72,9 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
+          cache-from: |
+            type=gha
+            type=registry,ref=${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest
           cache-to: type=gha,mode=max
           build-args: |
             BUILD_DATE=${{ github.event.head_commit.timestamp }}
