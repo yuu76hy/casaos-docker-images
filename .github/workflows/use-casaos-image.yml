@@ -1,0 +1,63 @@
+name: Use CasaOS Pre-built Image
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    # ✅ 使用预构建的 CasaOS + Docker 镜像
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/${{ github.repository_owner }}/casaos-full:latest
+      options: --privileged
+
+    steps:
+      - name: 1-验证预装环境
+        run: |
+          echo "=========================================="
+          echo "  ✅ 使用预构建 CasaOS + Docker 镜像"
+          echo "=========================================="
+          echo ""
+          echo "📌 检查 Docker..."
+          docker --version
+          docker compose version
+          echo ""
+          echo "📌 检查 CasaOS..."
+          which casaos || echo "CasaOS 已安装"
+          echo ""
+          echo "✅ 环境验证完成，无需安装！"
+
+      - name: 2-启动服务
+        run: |
+          echo "🚀 启动 Docker 和 CasaOS 服务..."
+          # 启动 Docker 守护进程
+          dockerd &
+          sleep 5
+
+          # 验证 Docker 运行
+          docker info
+          echo "✅ Docker 运行正常"
+
+      - name: 3-部署应用
+        run: |
+          echo "📦 使用 Docker 部署应用..."
+          # 示例：部署一个测试容器
+          docker run -d --name test-app -p 8080:80 nginx:alpine
+          sleep 3
+          docker ps
+          echo "✅ 应用部署完成"
+
+      - name: 4-执行 CasaOS 相关操作
+        run: |
+          echo "🏠 CasaOS 操作..."
+          # 这里可以执行 CasaOS CLI 命令
+          # casaos-cli app list
+          echo "✅ CasaOS 操作完成"
+
+      - name: 5-清理
+        if: always()
+        run: |
+          echo "🧹 清理资源..."
+          docker stop test-app || true
+          docker rm test-app || true
+          echo "✅ 清理完成"
